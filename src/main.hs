@@ -51,8 +51,8 @@ readUntil condition resourceT =
                 Left ret -> case ret of
                                 Nothing -> return (rr, BL.empty)
                                 Just r -> if exit
-                                          then return (r, BL.empty)
-                                          else loop condition r False
+                                              then return (r, BL.empty)
+                                              else loop condition r False
                 Right (res, str) -> second (BL.append str) <$> loop condition res True
 
 
@@ -67,8 +67,10 @@ parserRead condition resourceT putBackIfFail = do
     when (line == BL.empty) $ left Nothing -- Check END of File
 
     if condition line
-    then right (r1, line)
-    else left . Just $ if putBackIfFail then r else r1
+        then right (r1, line)
+        else left . Just $ if putBackIfFail 
+                               then r 
+                               else r1
     -- Return the previous ressource if we read one line too much (when not matching anymore)
 
 
@@ -100,8 +102,8 @@ extractFilename str = if isEncoded str
         replaceEncodedChars line = do
                                   let m = line =~ "=[0-9A-Za-z]{2}" :: String
                                   if null m
-                                  then line
-                                  else replaceEncodedChars $ replace m "_" line
+                                      then line
+                                      else replaceEncodedChars $ replace m "_" line
 
 -- Extract the email address of the sender
 extractSenderEmail :: B.ByteString -> B.ByteString
