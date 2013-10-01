@@ -2,7 +2,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 
 import           Text.Regex.PCRE
-import           Numeric
 
 
 import           Control.Concurrent.Async
