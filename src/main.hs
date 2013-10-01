@@ -22,9 +22,10 @@ import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Either
 import           Control.Monad.Trans.Maybe
 import           Data.Char                  (ord)
-import           System.Directory           (createDirectoryIfMissing)
+import           System.Directory           (createDirectoryIfMissing, getCurrentDirectory)
 import qualified System.IO                  as IO
 import Data.String.Utils(replace)
+import System.Environment(getArgs)
 
 isAttachement :: BL.ByteString -> Bool
 isAttachement line = line =~ "Content-Disposition:\\s*attachment;|filename(\\*[0-9]+\\*?)?="
@@ -128,21 +129,30 @@ parseWhilePossible resourceT senderName = loop resourceT []
 parseAttachement ::  C.ResumableSource IO B.ByteString -> String
                      -> MaybeT IO (C.ResumableSource IO B.ByteString, Async ())
 parseAttachement r senderName = do
-    (res1, attachmentName) <- liftIO $ readUntil isAttachement r
+    (res1, attachmentStr) <- liftIO $ readUntil isAttachement r
     (res2, attachmentBody) <- liftIO $ readUntil isBase64 res1
 
-    let filename = BC.unpack $ extractFilename attachmentName
-    guard(not . null $ filename)
-    let dataFile = B64.decodeLenient attachmentBody
+    -- Extracting absolute path where to store the attachment
+    rootDir <- liftIO ((\x -> x ++ "/" ++ senderName ++ "/") <$> getOuputDirectory)
+    liftIO $ print rootDir
+    let filename = BC.unpack $ extractFilename attachmentStr
 
+    guard(not . null $ filename)
+    liftIO $ createDirectoryIfMissing True rootDir
     liftIO $ print filename
 
-    liftIO $ createDirectoryIfMissing True senderName
-    lock <- liftIO $ async $ B.writeFile (senderName ++ "/" ++ filename) dataFile
+    -- Write file asynchronously
+    lock <- liftIO $ async $ B.writeFile (rootDir ++ filename) (B64.decodeLenient attachmentBody)
     return (res2, lock)
 
 
-
+getOuputDirectory :: IO FilePath
+getOuputDirectory = do
+    args <- getArgs
+    if null args
+        then getCurrentDirectory
+        else return $ head args
+                       
 
 
 main :: IO ()

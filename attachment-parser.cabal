@@ -5,13 +5,12 @@ Description:         Extract attachment from email, require an email per file
                     
 cabal-version:       >= 1.2
 License:             GPL
-License-file:        LICENSE
 Author:              Romain Gerard
 Maintainer:          Romain Gerard <romain.gerard@erebe.eu>
 build-type:          Simple
 
 Library
-    ghc-options:        -threaded -O3 -Wall
+    ghc-options:     -O3 -Wall
 
 Executable          attachment-parser
     ghc-options:         -threaded -Wall -O3
