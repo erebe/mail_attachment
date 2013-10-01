@@ -1,0 +1,16 @@
+Name:                attachment-parser
+Version:             1.0
+Synopsis:            Extract attachment from email
+Description:         Extract attachment from email, require an email per file
+                    
+License:             GPL
+License-file:        LICENSE
+Author:              Romain Gerard
+Maintainer:          Romain Gerard <romain.gerard@erebe.eu>
+build-type:          Simple
+Build-Depends:       base, either, regex-pcre, array, bytestring, 
+                     conduit, base64-conduit, directory, transformers,
+                     async, base64-bytestring, MissingH
+GHC-Options:         -threaded -Wall
+Executable:          attachmentExtractor
+Main-is:             src/main.hs
