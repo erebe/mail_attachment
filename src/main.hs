@@ -26,7 +26,6 @@ import           Data.Char                  (ord)
 import           System.Directory           (createDirectoryIfMissing)
 import qualified System.IO                  as IO
 import Data.String.Utils(replace)
-import Data.Char(chr)
 
 isAttachement :: BL.ByteString -> Bool
 isAttachement line = line =~ "Content-Disposition:\\s*attachment;|filename(\\*[0-9]+\\*?)?="
@@ -98,12 +97,12 @@ extractFilename str = if isEncoded str
                                    <$> (getAllTextMatches $ str =~ regex :: [B.ByteString]))
 
 
-        replaceEncodedChars :: String -> String
+        -- replaceEncodedChars :: String -> String
         replaceEncodedChars line = do
                                   let m = line =~ "=[0-9A-Za-z]{2}" :: String
                                   if null m
                                   then line
-                                  else replaceEncodedChars $ replace m [chr . fst . head . readHex $ tail m] line
+                                  else replaceEncodedChars $ replace m "_" line
 
 -- Extract the email address of the sender
 extractSenderEmail :: B.ByteString -> B.ByteString
