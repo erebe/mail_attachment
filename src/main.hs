@@ -120,25 +120,25 @@ parseWhilePossible :: C.ResumableSource IO B.ByteString -> String -> IO [Async (
 parseWhilePossible resourceT senderName = loop resourceT []
     where
         loop res buffer = do
-            ret <- runMaybeT $ parseAttachement res senderName
+            ret <- runMaybeT $ parseAttachement res senderName (getSenderDirectory senderName)
             case ret of
                 Just (r, lock) -> loop r (buffer ++ [lock])
                 _ -> return buffer
 
 
 -- Parse an attachment file -- If filename empty it's the end
-parseAttachement ::  C.ResumableSource IO B.ByteString -> String
+parseAttachement ::  C.ResumableSource IO B.ByteString -> String -> IO String
                      -> MaybeT IO (C.ResumableSource IO B.ByteString, Async ())
-parseAttachement r senderName = do
+parseAttachement r senderName getSenderDir = do
     (res1, attachmentStr) <- liftIO $ readUntil isAttachement r
     (res2, attachmentBody) <- liftIO $ readUntil isBase64 res1
 
     -- Extracting absolute path where to store the attachment
-    senderDir <- liftIO $ getSenderDirectory senderName
-    liftIO $ print senderDir
     let filename = BC.unpack $ extractFilename attachmentStr
 
     guard(not . null $ filename)
+    senderDir <- liftIO $ getSenderDir
+    liftIO $ print senderDir
     liftIO $ print filename
 
     -- Write file asynchronously
