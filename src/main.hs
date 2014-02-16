@@ -23,8 +23,8 @@ import           Control.Monad.Trans.Either
 import           Control.Monad.Trans.Maybe
 import           Data.Char                  (ord)
 import           Data.String.Utils          (replace)
-import           System.Directory           (createDirectoryIfMissing,
-                                             getCurrentDirectory)
+import           System.Directory           (createDirectoryIfMissing, getHomeDirectory,
+                                             getCurrentDirectory, getDirectoryContents, renameFile)
 import           System.Environment         (getArgs)
 import qualified System.IO                  as IO
 
@@ -137,11 +137,12 @@ parseAttachement r senderName getSenderDir = do
     let filename = BC.unpack $ extractFilename attachmentStr
 
     guard(not . null $ filename)
-    senderDir <- liftIO $ getSenderDir
+    senderDir <- liftIO getSenderDir
     liftIO $ print senderDir
     liftIO $ print filename
 
     -- Write file asynchronously
+    _ <- liftIO $ writeToImapMail senderName senderDir filename
     lock <- liftIO $ async $ B.writeFile (senderDir ++ filename) (B64.decodeLenient attachmentBody)
     return (res2, lock)
 
@@ -163,6 +164,33 @@ getSenderDirectory senderName = do
                                       then line
                                       else escapeDirectoryName $ replace m "_" line
 
+getMailAttachmentDirectory :: IO String
+getMailAttachmentDirectory = do
+    pathDir <- (++ "/.maildir/.PiecesJointes/cur/") <$> getHomeDirectory
+    print pathDir
+    _ <- createDirectoryIfMissing True pathDir
+
+    return pathDir
+
+writeToImapMail :: String -> String -> String -> IO ()
+writeToImapMail senderName senderDir filename = do
+    pathDir <- getMailAttachmentDirectory
+    test <- getDirectoryContents pathDir
+    let matches = filter (=~ senderName) test
+    if null matches
+        then createNewFile pathDir 
+        else appendToExistingFile (head matches) pathDir 
+
+
+    where
+        appendToExistingFile file pathDir = do
+            _ <- B.appendFile (pathDir ++ file) (BC.pack getFileURL) 
+            renameFile (pathDir ++ file) (pathDir ++ senderName ++ ":2,a")
+
+        createNewFile pathDir = 
+           B.writeFile (pathDir ++ senderName ++ ":2,a") (BC.pack $ "From: " ++ senderName ++ "\n" ++ "To: piecesjointes@erebe.eu\nSubject: piecesjointes\n\n" ++ getFileURL) 
+
+        getFileURL = filename ++ " --> https://cloud.erebe.eu/public.php?service=files&t=102ad9a0c36bf17737e2aa2205d47bb3&download&path=" ++ senderDir ++ filename ++ "\n"
 
 main :: IO ()
 main = do
