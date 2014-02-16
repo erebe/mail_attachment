@@ -22,10 +22,11 @@ import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Either
 import           Control.Monad.Trans.Maybe
 import           Data.Char                  (ord)
-import           System.Directory           (createDirectoryIfMissing, getCurrentDirectory)
+import           Data.String.Utils          (replace)
+import           System.Directory           (createDirectoryIfMissing,
+                                             getCurrentDirectory)
+import           System.Environment         (getArgs)
 import qualified System.IO                  as IO
-import Data.String.Utils(replace)
-import System.Environment(getArgs)
 
 isAttachement :: BL.ByteString -> Bool
 isAttachement line = line =~ "Content-Disposition:\\s*attachment;|filename(\\*[0-9]+\\*?)?="
@@ -69,8 +70,8 @@ parserRead condition resourceT putBackIfFail = do
 
     if condition line
         then right (r1, line)
-        else left . Just $ if putBackIfFail 
-                               then r 
+        else left . Just $ if putBackIfFail
+                               then r
                                else r1
     -- Return the previous ressource if we read one line too much (when not matching anymore)
 
@@ -85,7 +86,7 @@ parserRead condition resourceT putBackIfFail = do
 -- Extract the filename of the attachment
 extractFilename :: B.ByteString -> B.ByteString
 extractFilename str = if isEncoded str
-                       then if isEncodedPrintable str 
+                       then if isEncodedPrintable str
                             then  BC.pack . replaceEncodedChars . BC.unpack $ getFilename rEncodedBytes --Use some mixed of ascii and hexa
                             else B64.decodeLenient $ getFilename rEncodedBytes --Base64 yeahh !!!
                        else getFilename rASCIIBytes
@@ -117,7 +118,7 @@ extractSenderEmail str = getAllTextSubmatches ((=~) str $ if str =~ "From:\\s*[^
 -- Try to extract attachment file while we found some
 parseWhilePossible :: C.ResumableSource IO B.ByteString -> String -> IO [Async ()]
 parseWhilePossible resourceT senderName = loop resourceT []
-    where 
+    where
         loop res buffer = do
             ret <- runMaybeT $ parseAttachement res senderName
             case ret of
@@ -133,26 +134,34 @@ parseAttachement r senderName = do
     (res2, attachmentBody) <- liftIO $ readUntil isBase64 res1
 
     -- Extracting absolute path where to store the attachment
-    rootDir <- liftIO ((\x -> x ++ "/" ++ senderName ++ "/") <$> getOuputDirectory)
-    liftIO $ print rootDir
+    senderDir <- liftIO $ getSenderDirectory senderName
+    liftIO $ print senderDir
     let filename = BC.unpack $ extractFilename attachmentStr
 
     guard(not . null $ filename)
-    liftIO $ createDirectoryIfMissing True rootDir
     liftIO $ print filename
 
     -- Write file asynchronously
-    lock <- liftIO $ async $ B.writeFile (rootDir ++ filename) (B64.decodeLenient attachmentBody)
+    lock <- liftIO $ async $ B.writeFile (senderDir ++ filename) (B64.decodeLenient attachmentBody)
     return (res2, lock)
 
 
-getOuputDirectory :: IO FilePath
-getOuputDirectory = do
+getSenderDirectory :: String -> IO String
+getSenderDirectory senderName = do
     args <- getArgs
-    if null args
-        then getCurrentDirectory
-        else return $ head args
-                       
+    rootDir <- if null args
+                            then getCurrentDirectory
+                            else return $ head args
+
+    let senderDir = rootDir ++ "/" ++ escapeDirectoryName senderName ++ "/"
+    _ <- createDirectoryIfMissing True senderDir
+    return senderDir
+
+    where
+    escapeDirectoryName line = do let m = line =~ "[\\.@]" :: String
+                                  if null m
+                                      then line
+                                      else escapeDirectoryName $ replace m "_" line
 
 
 main :: IO ()
