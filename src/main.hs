@@ -190,7 +190,7 @@ writeToImapMail senderName senderDir filename = do
         createNewFile pathDir =
            B.writeFile (pathDir ++ senderName ++ ":2,a") (BC.pack $ "From: " ++ senderName ++ "\n" ++ "To: piecesjointes@erebe.eu\nSubject: piecesjointes\n\n" ++ getFileURL)
 
-        getFileURL = filename ++ " --> https://cloud.erebe.eu/public.php?service=files&t=102ad9a0c36bf17737e2aa2205d47bb3&download&path=" ++ reverse (takeWhile (/= '/') $ drop 1 $ reverse senderDir) ++ "/" ++ filename ++ "\n"
+        getFileURL = filename ++ " --> https://cloud.erebe.eu/public.php?service=files&t=102ad9a0c36bf17737e2aa2205d47bb3&download&path=/" ++ reverse (takeWhile (/= '/') $ drop 1 $ reverse senderDir) ++ "/" ++ filename ++ "\n"
 
 main :: IO ()
 main = do
