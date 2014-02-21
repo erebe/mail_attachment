@@ -18,6 +18,7 @@ import qualified Data.ByteString.Lazy       as BL
 import           Control.Applicative
 import           Control.Arrow              (second, (>>>))
 import           Control.Monad
+import           Control.Monad.Trans.State
 import           Control.Monad.IO.Class     (liftIO)
 import           Control.Monad.Trans.Either
 import           Control.Monad.Trans.Maybe
@@ -36,6 +37,18 @@ isFromSender line = line =~ "From\\s*:"
 
 isBase64 :: BL.ByteString -> Bool
 isBase64 line = line =~ "^[/=+A-Za-z0-9]+$"
+
+
+data Config = Config { attachmentPath     :: String
+                     , imapAttachmentPath :: String
+                     , cloudURL           :: String
+                     } deriving (Show, Read)
+
+data MailInfo = MailInfo { senderName :: String
+                         , senderDir  :: String
+                         , urls       :: B.ByteString
+                         , conf       :: Config
+                         }
 
 
 -- Controle l'execution du parser
@@ -116,20 +129,20 @@ extractSenderEmail str = getAllTextSubmatches ((=~) str $ if str =~ "From:\\s*[^
 
 
 -- Try to extract attachment file while we found some
-parseWhilePossible :: C.ResumableSource IO B.ByteString -> String -> IO [Async ()]
-parseWhilePossible resourceT senderName = loop resourceT []
+parseWhilePossible :: C.ResumableSource IO B.ByteString -> String -> Config -> IO ([Async ()], B.ByteString)
+parseWhilePossible resourceT senderName config = loop resourceT ([], BC.pack "")
     where
         loop res buffer = do
-            ret <- runMaybeT $ parseAttachement res senderName (getSenderDirectory senderName)
+            ret <- runMaybeT $ parseAttachement res senderName (getSenderDirectory senderName) config
             case ret of
-                Just (r, lock) -> loop r (buffer ++ [lock])
+                Just (r, lock, url) -> loop r $ ((fst buffer) ++ [lock], (snd buffer) `B.append` url)
                 _ -> return buffer
 
 
 -- Parse an attachment file -- If filename empty it's the end
-parseAttachement ::  C.ResumableSource IO B.ByteString -> String -> IO String
-                     -> MaybeT IO (C.ResumableSource IO B.ByteString, Async ())
-parseAttachement r senderName getSenderDir = do
+parseAttachement ::  C.ResumableSource IO B.ByteString -> String -> IO String -> Config
+                     -> MaybeT IO (C.ResumableSource IO B.ByteString, Async (), B.ByteString)
+parseAttachement r senderName getSenderDir conf = do
     (res1, attachmentStr) <- liftIO $ readUntil isAttachement r
     (res2, attachmentBody) <- liftIO $ readUntil isBase64 res1
 
@@ -142,9 +155,14 @@ parseAttachement r senderName getSenderDir = do
     liftIO $ print filename
 
     -- Write file asynchronously
-    _ <- liftIO $ writeToImapMail senderName senderDir filename
     lock <- liftIO $ async $ B.writeFile (senderDir ++ filename) (B64.decodeLenient attachmentBody)
-    return (res2, lock)
+    return (res2, lock, getFileURL filename senderDir)
+
+    where
+        getFileURL filename senderDir = BC.pack $ filename ++ " --> " ++ (cloudURL conf)
+                                            ++ reverse (takeWhile (/= '/') $ drop 1 $ reverse senderDir)
+                                            ++ "/" ++ filename ++ "\n"
+
 
 
 getSenderDirectory :: String -> IO String
@@ -172,34 +190,45 @@ getMailAttachmentDirectory = do
 
     return pathDir
 
-writeToImapMail :: String -> String -> String -> IO ()
-writeToImapMail senderName senderDir filename = do
-    pathDir <- getMailAttachmentDirectory
-    test <- getDirectoryContents pathDir
-    let matches = filter (=~ senderName) test
-    if null matches
-        then createNewFile pathDir
-        else appendToExistingFile (head matches) pathDir
+-- writeToImapMail :: String -> String -> String -> Config -> IO ()
+-- writeToImapMail senderName senderDir filename conf = do
+--     pathDir <- imapAttachmentPath conf
+--     fileList <- getDirectoryContents pathDir
+--     let matches = filter (=~ senderName) fileList
+--     if null matches
+--         then createNewFile pathDir
+--         else appendToExistingFile (head matches) pathDir
+-- 
+-- 
+--     where
+--         appendToExistingFile file pathDir = do
+--                                             _ <- B.appendFile (pathDir ++ file) (BC.pack filename)
+--                                             renameFile (pathDir ++ file) (mailPath pathDir)
+-- 
+--         createNewFile pathDir = B.writeFile (mailPath pathDir)
+--                                             (BC.pack $ "From: " ++ senderName ++ "\n" ++ "To: piecesjointes@erebe.eu\nSubject: piecesjointes\n\n" ++ filename)
+-- 
+-- 
+--         mailPath pathDir = pathDir ++ senderName ++ ":2,a"
 
+getConfigFile :: IO Config
+getConfigFile = do
+    configFile <- join $ B.readFile <$> (++ "/.attachmentparser.rc") <$> getHomeDirectory
+    return (read (BC.unpack configFile) :: Config)
 
-    where
-        appendToExistingFile file pathDir = do
-            _ <- B.appendFile (pathDir ++ file) (BC.pack getFileURL)
-            renameFile (pathDir ++ file) (pathDir ++ senderName ++ ":2,a")
-
-        createNewFile pathDir =
-           B.writeFile (pathDir ++ senderName ++ ":2,a") (BC.pack $ "From: " ++ senderName ++ "\n" ++ "To: piecesjointes@erebe.eu\nSubject: piecesjointes\n\n" ++ getFileURL)
-
-        getFileURL = filename ++ " --> https://cloud.erebe.eu/public.php?service=files&t=102ad9a0c36bf17737e2aa2205d47bb3&download&path=/" ++ reverse (takeWhile (/= '/') $ drop 1 $ reverse senderDir) ++ "/" ++ filename ++ "\n"
 
 main :: IO ()
 main = do
+    conf <- getConfigFile
+    let mailInfo = MailInfo "" "" (BC.pack "") conf 
     (res, _) <- CB.sourceHandle IO.stdin C.$$+ (CB.drop 1 C.=$ CB.sinkLbs)
 
     -- Lets shoot ourself in the foor with arrow for the next we will read this code
-    (locks, _) <- ( second  (BC.unpack . extractSenderEmail)
-                    >>> (\(x,y) -> (parseWhilePossible x y, y))
+    (ret,_) <- ( second  (mailInfo {senderName = BC.unpack . extractSenderEmail} )
+                    >>> (\(x,y) -> (parseWhilePossible x y conf, y))
                   ) <$> readUntil isFromSender res
 
-    locks >>= mapM_ wait
+    (locks,urls) <- ret
+    mapM_ wait locks
+    print "l"
 
