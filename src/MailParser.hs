@@ -34,7 +34,7 @@ isAttachement :: BL.ByteString -> Bool
 isAttachement line = line =~ "Content-Disposition:\\s*attachment;|filename(\\*[0-9]+\\*?)?="
 
 isFromSender :: BL.ByteString -> Bool
-isFromSender line = line =~ "From\\s*:"
+isFromSender line = line =~ "Return-Path\\s*:"
 
 isBase64 :: BL.ByteString -> Bool
 isBase64 line = line =~ "^[/=+A-Za-z0-9]+$"
@@ -216,7 +216,7 @@ run = do
     let mailInfo = MailInfo "" "" undefined config
 
 
-    (res, _) <- CB.sourceHandle IO.stdin C.$$+ (CB.drop 1 C.=$ CB.sinkLbs)
+    (res, _) <- CB.sourceHandle IO.stdin C.$$+ (CB.drop 0 C.=$ CB.sinkLbs)
 
     -- Lets shoot ourself in the foor with arrow for the next we will read this code
     (ret,mInfo) <- (        second (\x -> mailInfo { getSenderName = extractSenderEmail x })
