@@ -7,7 +7,9 @@ import System.Directory(copyFile)
 getPackgeName ::  Package pkg => pkg -> String
 getPackgeName =  read . drop  11 . show . packageName
 
--- copyBinary args = 
-main = defaultMainWithHooks simpleUserHooks { postBuild = (\a _ c _ -> do 
+-- copyBinary args =
+main = defaultMainWithHooks simpleUserHooks { postBuild = (\a _ c _ -> do
                                                                       let pkgName = getPackgeName c
-                                                                      copyFile ("./dist/build/" ++ pkgName ++ "/" ++ pkgName) pkgName ) }
+                                                                      copyFile ("./dist/build/" ++ pkgName ++ "/" ++ pkgName) pkgName
+                                                                      copyFile "./dist/build/runTests/runTests" "runTests" )
+                                            }
