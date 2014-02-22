@@ -99,16 +99,16 @@ parserRead condition resourceT putBackIfFail = do
 -- TODO : betting handling of filename encoding
 -- Extract the filename of the attachment
 extractFilename :: B.ByteString -> B.ByteString
-extractFilename str = if isEncoded str
-                       then if isEncodedPrintable str
-                            then BC.pack . replaceEncodedChars . BC.unpack $ getFilename rEncodedBytes --Use some mixed of ascii and hexa
-                            else B64.decodeLenient $ getFilename rEncodedBytes --Base64 yeahh !!!
-                       else getFilename rASCIIBytes
+extractFilename str = escapeChars $ if isEncoded str
+                                       then if isEncodedPrintable str
+                                            then BC.pack . replaceEncodedChars . BC.unpack $ getFilename rEncodedBytes --Use some mixed of ascii and hexa
+                                            else B64.decodeLenient $ getFilename rEncodedBytes --Base64 yeahh !!!
+                                       else getFilename rASCIIBytes
     where
-        isEncoded line = line =~ "filename(\\*[0-9]+)?=\"=\\?[^\\?]+\\?[BQ]\\?"
-        isEncodedPrintable line = line =~ "filename(\\*[0-9]+\\*?)?=\"=\\?[^\\?]+\\?Q\\?"
+        isEncoded line = line =~ "filename(\\*[0-9]+)?=[\r\n\t ]*\"=\\?[^\\?]+\\?[BQ]\\?"
+        isEncodedPrintable line = line =~ "filename(\\*[0-9]+\\*?)?=[\r\n\t ]*\"=\\?[^\\?]+\\?Q\\?"
         rEncodedBytes = "=\\?[^\\?]+\\?[BQ]\\?([^\\?]+)\\?="
-        rASCIIBytes = "filename\\*?[0-9]*=\"?([^\";]+)\"?;?"
+        rASCIIBytes = "filename\\*?[0-9]*=[\r\n\t ]*\"?([^\";]+)\"?;?"
         getFilename regex =  foldl (\x y -> x `B.append` (y !! 1)) B.empty
                                    ((\m -> getAllTextSubmatches $ m =~ regex :: [B.ByteString])
                                    <$> (getAllTextMatches $ str =~ regex :: [B.ByteString]))
@@ -121,6 +121,8 @@ extractFilename str = if isEncoded str
                                       then line
                                       else replaceEncodedChars $ replace m "_" line
 
+        escapeChars = BC.map (\x -> if x `elem` " ',*$&\\~#|²£%µ:;!§?<>=`^+" then '_' else x )
+                        
 -- Extract the email address of the sender
 extractSenderEmail :: B.ByteString -> String
 extractSenderEmail str = BC.unpack $ BC.map toLower $ getAllTextSubmatches ((=~) str $ if str =~ "Return-Path:\\s*[^<]*<\\s*([^>\\s]+)\\s*>"
