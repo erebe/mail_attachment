@@ -2,7 +2,7 @@ Name:                attachment-parser
 Version:             1.0
 Synopsis:            Extract attachment from email
 Description:         Extract attachment from email, require an email per file
-                    
+
 cabal-version:       >= 1.8
 License:             GPL
 Author:              Romain Gerard
@@ -13,26 +13,26 @@ Library
     hs-source-dirs:  src
     ghc-options:     -O3 -Wall
     Exposed-modules: MailParser
-    Build-Depends:   base, either, regex-pcre, array, bytestring, 
+    Build-Depends:   base, either, regex-pcre, array, bytestring,
                      conduit, base64-conduit, directory, transformers,
-                     async, base64-bytestring, MissingH
+                     async, base64-bytestring, MissingH, time
 
 Executable          attachment-parser
     hs-source-dirs:  src
     ghc-options:     -threaded -Wall -O3
     Main-is:         main.hs
-    Build-Depends:   base, either, regex-pcre, array, bytestring, 
+    Build-Depends:   base, either, regex-pcre, array, bytestring,
                      conduit, base64-conduit, directory, transformers,
-                     async, base64-bytestring, MissingH
+                     async, base64-bytestring, MissingH, time
 
-     
+
 test-suite runTests
     hs-source-dirs:  test
     Main-Is:         runTests.hs
     Type:            exitcode-stdio-1.0
 
     Build-Depends:   attachment-parser, QuickCheck, base, regex-pcre, bytestring
-                     
+
     Ghc-Options:     -Wall -threaded -O3
 
 

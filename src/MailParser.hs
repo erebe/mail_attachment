@@ -29,6 +29,7 @@ import           Data.String.Utils          (replace)
 import           System.Directory           (createDirectoryIfMissing, getHomeDirectory,
                                              getDirectoryContents, renameFile)
 import qualified System.IO                  as IO
+import Data.Time.Clock.POSIX
 
 isAttachement :: BL.ByteString -> Bool
 isAttachement line = line =~ "Content-Disposition:\\s*attachment;|filename(\\*[0-9]+\\*?)?="
@@ -122,7 +123,7 @@ extractFilename str = escapeChars $ if isEncoded str
                                       else replaceEncodedChars $ replace m "_" line
 
         escapeChars = BC.map (\x -> if x `elem` " ',*$&\\~#|²£%µ:;!§?<>=`^+" then '_' else x )
-                        
+
 -- Extract the email address of the sender
 extractSenderEmail :: B.ByteString -> String
 extractSenderEmail str = BC.unpack $ BC.map toLower $ getAllTextSubmatches ((=~) str $ if str =~ "Return-Path:\\s*[^<]*<\\s*([^>\\s]+)\\s*>"
@@ -183,26 +184,27 @@ getWriterToSenderDirectory mailInfo file datas = do
 
 writeToImapMail :: MailInfo -> B.ByteString -> IO ()
 writeToImapMail mailInfo urls = do
+    uuid <- show . (\x -> round x :: Integer) <$> getPOSIXTime 
     let pathDir = imapAttachmentPath . getConf $ mailInfo
     _ <- createDirectoryIfMissing True pathDir
     fileList <- getDirectoryContents pathDir
     let matches = filter (=~ getSenderName mailInfo) fileList
     if null matches
-        then createNewFile pathDir
-        else appendToExistingFile (head matches) pathDir
+        then createNewFile pathDir uuid
+        else appendToExistingFile (head matches) pathDir uuid
 
 
     where
-        appendToExistingFile file pathDir = do
+        appendToExistingFile file pathDir uuid = do
                                             _ <- B.appendFile (pathDir ++ file) urls
-                                            renameFile (pathDir ++ file) (mailPath pathDir)
+                                            renameFile (pathDir ++ file) (mailPath pathDir uuid)
 
-        createNewFile pathDir = B.writeFile (mailPath pathDir)
+        createNewFile pathDir uuid = B.writeFile (mailPath pathDir uuid)
                                             $ BC.pack ("From: " ++ getSenderName mailInfo ++ "\n" ++ "To: piecesjointes@erebe.eu\nSubject: piecesjointes\n\n")
                                             `B.append` urls
 
 
-        mailPath pathDir = pathDir ++ getSenderName mailInfo ++ ":2,a"
+        mailPath pathDir uuid = pathDir ++ getSenderName mailInfo ++ uuid ++ ":2,a"
 
 loadConfigFile :: IO Config
 loadConfigFile = do
