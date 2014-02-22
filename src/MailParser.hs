@@ -229,8 +229,7 @@ run = do
 
     (locks,urls) <- ret
     mapM_ wait locks
-    writeToImapMail mInfo urls
-    print urls
+    unless (B.null urls) $ writeToImapMail mInfo urls
 
 
 
