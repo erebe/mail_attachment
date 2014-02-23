@@ -26,10 +26,11 @@ import           Control.Monad.Trans.Either
 import           Control.Monad.Trans.Maybe
 import           Data.Char                  (ord, toLower)
 import           Data.String.Utils          (replace)
-import           System.Directory           (createDirectoryIfMissing, getHomeDirectory,
-                                             getDirectoryContents, renameFile)
+import           Data.Time.Clock.POSIX
+import           System.Directory           (createDirectoryIfMissing,
+                                             getDirectoryContents,
+                                             getHomeDirectory, renameFile)
 import qualified System.IO                  as IO
-import Data.Time.Clock.POSIX
 
 isAttachement :: BL.ByteString -> Bool
 isAttachement line = line =~ "Content-Disposition:\\s*attachment;|filename(\\*[0-9]+\\*?)?="
@@ -46,10 +47,10 @@ data Config = Config { attachmentPath     :: String
                      , publicURL          :: String
                      } deriving (Show, Read)
 
-data MailInfo = MailInfo { getSenderName    :: String
-                         , senderDir        :: String
-                         , writeToSenderDir :: String -> B.ByteString -> IO ()
-                         , getConf          :: Config
+data MailInfo = MailInfo { getSenderName        :: String
+                         , getSenderDir         :: String
+                         , getWriterToSenderDir :: String -> B.ByteString -> IO ()
+                         , getConf              :: Config
                          }
 
 
@@ -77,13 +78,13 @@ readUntil condition resourceT =
 -- Try to read a line respecting condition
 parserRead :: (BL.ByteString -> Bool) -> C.ResumableSource IO B.ByteString -> Bool
               -> EitherT (Maybe (C.ResumableSource IO B.ByteString)) IO (C.ResumableSource IO B.ByteString, BL.ByteString)
-parserRead condition resourceT putBackIfFail = do
+parserRead conditionMatch resourceT putBackIfFail = do
     (r, _) <- liftIO $ dropSpaceFrom resourceT
     (r1, line) <- liftIO $ getLineFrom r
 
-    when (line == BL.empty) $ left Nothing -- Check END of File
+    when (eof line) $ left Nothing -- Check END of File
 
-    if condition line
+    if conditionMatch line
         then right (r1, line)
         else left . Just $ if putBackIfFail
                                then r
@@ -93,6 +94,7 @@ parserRead condition resourceT putBackIfFail = do
 
 
     where
+        eof = (== BL.empty)
         getLineFrom r =  r C.$$++ CB.takeWhile (/= (fromIntegral $ ord '\n')) C.=$ CB.sinkLbs
         dropSpaceFrom r  =  r C.$$++ CB.takeWhile (== (fromIntegral $ ord '\n')) C.=$ CB.sinkLbs
 
@@ -146,7 +148,8 @@ parseWhilePossible resourceT mailInfo = loop resourceT ([], BC.pack "")
 -- Parse an attachment file -- If filename empty it's the end
 parseAttachement ::  C.ResumableSource IO B.ByteString -> MailInfo
                      -> MaybeT IO (C.ResumableSource IO B.ByteString, Async (), B.ByteString)
-parseAttachement r mailInfo = do
+parseAttachement r mailInfo@MailInfo { getWriterToSenderDir = writeToSenderDir } = do
+
     (res1, attachmentStr) <- liftIO $ readUntil isAttachement r
     (res2, attachmentBody) <- liftIO $ readUntil isBase64 res1
 
@@ -156,58 +159,73 @@ parseAttachement r mailInfo = do
     guard(not . null $ filename)
 
     -- Write file asynchronously
-    lock <- liftIO $ async $  writeToSenderDir mailInfo filename (B64.decodeLenient attachmentBody)
+    lock <- liftIO $ async $ writeToSenderDir filename (B64.decodeLenient attachmentBody)
     return (res2, lock, generatePublicURL mailInfo filename)
 
 
-generatePublicURL :: MailInfo -> String -> B.ByteString
-generatePublicURL mailInfo filename = BC.pack $ "<a href=\"" ++ (publicURL . getConf $ mailInfo)
-                                                             ++ "/" ++ senderDir mailInfo
-                                                             ++ "/" ++ filename
-                                                ++ "\">" ++ filename ++ "</a><br>"
 
-getSenderDir :: MailInfo -> String
-getSenderDir mailInfo = escapeDirectoryName (getSenderName mailInfo)
+--
+generatePublicURL :: MailInfo -> String -> B.ByteString
+generatePublicURL MailInfo {getSenderDir = senderDir,
+                            getConf = Config { publicURL = publicURL'}}
+                  filename = BC.pack $ "<a href=\"" ++ publicURL'
+                                                    ++ "/" ++ senderDir
+                                                    ++ "/" ++ filename
+                                                    ++ "\">"
+                                        ++ filename ++ "</a><br>"
+
+
+--
+retrieveSenderDir :: MailInfo -> String
+retrieveSenderDir MailInfo {getSenderName = senderName} = escapeDirectoryName senderName
     where
     escapeDirectoryName line = do let m = line =~ "[\\.@]" :: String
                                   if null m
                                       then line
                                       else escapeDirectoryName $ replace m "_" line
 
+
+
+--
 getWriterToSenderDirectory ::  MailInfo -> String -> B.ByteString -> IO ()
-getWriterToSenderDirectory mailInfo file datas = do
-    let userDir = (attachmentPath . getConf $ mailInfo) ++ senderDir mailInfo ++ "/"
+getWriterToSenderDirectory MailInfo {getSenderDir = senderDir,
+                                     getConf = Config { attachmentPath = attachmentPath'}}
+                           file datas = do
+
+    let userDir = attachmentPath' ++ senderDir ++ "/"
     _ <- createDirectoryIfMissing True userDir
     B.writeFile (userDir ++ file) datas
 
     print $ "Writing file {" ++ file ++ "} to {" ++ userDir ++ "}"
 
 
+
+--
 writeToImapMail :: MailInfo -> B.ByteString -> IO ()
-writeToImapMail mailInfo urls = do
+writeToImapMail MailInfo {getSenderName = senderName,
+                          getConf = Config { imapAttachmentPath = pathDir }}
+                urls = do
+
+    _ <- createDirectoryIfMissing True pathDir
     uuid <- show . (\x -> round x :: Integer) <$> getPOSIXTime
 
-    let pathDir = imapAttachmentPath . getConf $ mailInfo
-    _ <- createDirectoryIfMissing True pathDir
-
     fileList <- getDirectoryContents pathDir
-    let matches = filter (=~ getSenderName mailInfo) fileList
+    let matches = filter (=~ senderName) fileList
     if null matches
-        then createNewFile pathDir uuid
-        else appendToExistingFile (head matches) pathDir uuid
+        then createNewFile uuid
+        else appendToExistingFile (head matches) uuid
 
 
     where
-        appendToExistingFile file pathDir uuid = do
-                                            _ <- B.appendFile (pathDir ++ file) urls
-                                            renameFile (pathDir ++ file) (mailPath pathDir uuid)
+        appendToExistingFile file uuid = do _ <- B.appendFile (pathDir ++ file) urls
+                                            renameFile (pathDir ++ file) (mailPath uuid)
 
-        createNewFile pathDir uuid = B.writeFile (mailPath pathDir uuid)
-                                            $ getHTMLTemplate `B.append` urls
+        createNewFile uuid = B.writeFile (mailPath uuid)
+                                        $ getHTMLTemplate `B.append` urls
 
 
-        mailPath pathDir uuid = pathDir ++ getSenderName mailInfo ++ uuid ++ ":2,Sa"
-        getHTMLTemplate = BC.pack $ "From: " ++ getSenderName mailInfo ++ "\n"
+        mailPath uuid = pathDir ++ senderName ++ uuid ++ ":2,Sa"
+        getHTMLTemplate = BC.pack $ "From: " ++ senderName ++ "\n"
                                    ++ "To: piecesjointes@erebe.eu\n"
                                    ++ "Subject: piecesjointes\n"
                                    ++ "Content-Type: text/html; charset=UTF-8\n"
@@ -217,12 +235,17 @@ writeToImapMail mailInfo urls = do
                                    ++   "</head>\n"
                                    ++   "<body bgcolor=\"#FFFFFF\" text=\"#000000\">\n"
 
+
+
+--
 loadConfigFile :: IO Config
 loadConfigFile = do
     configFile <- join $ B.readFile <$> (++ "/.attachmentparser.rc") <$> getHomeDirectory
     return $ read (BC.unpack configFile) :: IO Config
 
 
+
+--
 run :: IO ()
 run = do
     config <- loadConfigFile
@@ -233,14 +256,11 @@ run = do
 
     -- Lets shoot ourself in the foor with arrow for the next we will read this code
     (ret,mInfo) <- (        second (\x -> mailInfo { getSenderName = extractSenderEmail x })
-                        >>> second (\x -> x { senderDir = getSenderDir x })
-                        >>> second (\x -> x { writeToSenderDir = getWriterToSenderDirectory x })
+                        >>> second (\x -> x { getSenderDir = retrieveSenderDir x })
+                        >>> second (\x -> x { getWriterToSenderDir = getWriterToSenderDirectory x })
                         >>> (\(ress, mInfo) -> (parseWhilePossible ress mInfo, mInfo))
                   ) <$> readUntil isFromSender res
 
     (locks,urls) <- ret
     mapM_ wait locks
     unless (B.null urls) $ writeToImapMail mInfo urls
-
-
-
