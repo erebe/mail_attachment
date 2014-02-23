@@ -126,7 +126,7 @@ extractFilename str = escapeChars $ if isEncoded str
 
 -- Extract the email address of the sender
 extractSenderEmail :: B.ByteString -> String
-extractSenderEmail str = BC.unpack $ BC.map toLower $ getAllTextSubmatches ((=~) str $ if str =~ "Return-Path:\\s*[^<]*<\\s*([^>\\s]+)\\s*>"
+extractSenderEmail str = BC.unpack . BC.map toLower $ getAllTextSubmatches ((=~) str $ if str =~ "Return-Path:\\s*[^<]*<\\s*([^>\\s]+)\\s*>"
                                                          then "Return-Path:\\s*[^<]*<\\s*([^>\\s]+)\\s*>"
                                                          else "Return-Path:\\s*(.*)"
                                                       ) !! 1
