@@ -161,9 +161,10 @@ parseAttachement r mailInfo = do
 
 
 generatePublicURL :: MailInfo -> String -> B.ByteString
-generatePublicURL mailInfo filename = BC.pack $ filename ++ " --> " ++ (publicURL . getConf $ mailInfo)
-                                        ++ "/" ++ senderDir mailInfo
-                                        ++ "/" ++ filename ++ "\n"
+generatePublicURL mailInfo filename = BC.pack $ "<a href=\"" ++ (publicURL . getConf $ mailInfo)
+                                                             ++ "/" ++ senderDir mailInfo
+                                                             ++ "/" ++ filename
+                                                ++ "\">" ++ filename ++ "</a><br>"
 
 getSenderDir :: MailInfo -> String
 getSenderDir mailInfo = escapeDirectoryName (getSenderName mailInfo)
@@ -184,9 +185,11 @@ getWriterToSenderDirectory mailInfo file datas = do
 
 writeToImapMail :: MailInfo -> B.ByteString -> IO ()
 writeToImapMail mailInfo urls = do
-    uuid <- show . (\x -> round x :: Integer) <$> getPOSIXTime 
+    uuid <- show . (\x -> round x :: Integer) <$> getPOSIXTime
+
     let pathDir = imapAttachmentPath . getConf $ mailInfo
     _ <- createDirectoryIfMissing True pathDir
+
     fileList <- getDirectoryContents pathDir
     let matches = filter (=~ getSenderName mailInfo) fileList
     if null matches
@@ -200,11 +203,19 @@ writeToImapMail mailInfo urls = do
                                             renameFile (pathDir ++ file) (mailPath pathDir uuid)
 
         createNewFile pathDir uuid = B.writeFile (mailPath pathDir uuid)
-                                            $ BC.pack ("From: " ++ getSenderName mailInfo ++ "\n" ++ "To: piecesjointes@erebe.eu\nSubject: piecesjointes\n\n")
-                                            `B.append` urls
+                                            $ getHTMLTemplate `B.append` urls
 
 
-        mailPath pathDir uuid = pathDir ++ getSenderName mailInfo ++ uuid ++ ":2,a"
+        mailPath pathDir uuid = pathDir ++ getSenderName mailInfo ++ uuid ++ ":2,Sa"
+        getHTMLTemplate = BC.pack $ "From: " ++ getSenderName mailInfo ++ "\n"
+                                   ++ "To: piecesjointes@erebe.eu\n"
+                                   ++ "Subject: piecesjointes\n"
+                                   ++ "Content-Type: text/html; charset=UTF-8\n"
+                                   ++ "Content-Transfer-Encoding: 7bit\n\n"
+                                   ++   "<head>\n"
+                                   ++     "<meta content=\"text/html; charset=UTF-8\" http-equiv=\"Content-Type\">\n"
+                                   ++   "</head>\n"
+                                   ++   "<body bgcolor=\"#FFFFFF\" text=\"#000000\">\n"
 
 loadConfigFile :: IO Config
 loadConfigFile = do
