@@ -155,11 +155,14 @@ parseAttachement r mailInfo@MailInfo { getWriterToSenderDir = writeToSenderDir }
 
     -- Extracting absolute path where to store the attachment
     let filename = BC.unpack $ extractFilename attachmentStr
+    let file = case (B64.decode attachmentBody) of
+               Right x -> x
+               _       -> BC.empty
 
-    guard(not . null $ filename)
+    guard((not . null $ filename) && (not $ BC.empty == file))
 
     -- Write file asynchronously
-    lock <- liftIO $ async $ writeToSenderDir filename (B64.decodeLenient attachmentBody)
+    lock <- liftIO $ async $ writeToSenderDir filename file
     return (res2, lock, generatePublicURL mailInfo filename)
 
 
